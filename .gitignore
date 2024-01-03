@@ -1,0 +1,6 @@
+# DEV
+.idea
+.vscode
+
+# Build
+*.exe
