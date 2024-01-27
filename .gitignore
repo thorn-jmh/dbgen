@@ -4,3 +4,8 @@
 
 # Build
 *.exe
+
+# TEST
+*.json
+model
+!*/model

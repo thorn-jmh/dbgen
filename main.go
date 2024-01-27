@@ -3,8 +3,8 @@ package main
 import (
 	"entgo.io/ent"
 	"fmt"
-	"github.com/dave/jennifer/jen"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -32,22 +32,23 @@ type Def struct {
 
 func main() {
 
-	fp := jen.NewFilePath("test")
+	s := []int{1}
+	for i, v := range s {
+		fmt.Println(i, v)
 
-	fp.Comment("testttt")
-	fp.Type().Id("A").Struct(
-		jen.Id("Name").Op("*").Id("string"),
-		jen.Id("").Qual("gorm", "Model"),
-	)
+		s = append(s, i+10)
+	}
+	fmt.Println(s)
 
-	err := fp.Save("./test/test.go")
+	res, err := strconv.ParseUint("160.0", 10, 64)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println(res)
 
 	// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-	uri, err := url.Parse("schema.json#/qwq/test")
+	uri, err := url.Parse("#/$defs/qwq/test")
 	if err != nil {
 		panic(err)
 	}

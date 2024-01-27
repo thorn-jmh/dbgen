@@ -5,6 +5,7 @@ type Context struct {
 }
 
 type State struct {
-	Require bool   // is current object required
-	Path    string // current object's path
+	Require    bool   // is current object required
+	Path       string // current object's path
+	ParentPath string // current object's parent
 }

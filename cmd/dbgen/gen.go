@@ -16,7 +16,7 @@ func gen(schemaPath string) error {
 	}
 
 	// then generate the code
-	model, err := modelgen.GenerateModel(jsch)
+	model, err := modelgen.GenAndProcess(jsch)
 	if err != nil {
 		return err
 	}

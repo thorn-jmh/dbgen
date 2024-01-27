@@ -34,12 +34,14 @@ func (t *Type) Contains(typ SchemaNodeType) bool {
 // Value is a JSON value.
 type Value any
 
-// SubSchema represents a JSON Schema object type.
+type SubSchema SchemaProperties
+
+// SchemaProperties represents a JSON Schema object type.
 // A subSchema could be a boolean value.
 //
 // NOTE: for all fields whose default value behavior is NOT
 // same with the null value, we use pointer type.
-type SubSchema struct {
+type SchemaProperties struct {
 	// ID and Reference
 	// https://json-schema.org/draft/2020-12/json-schema-core
 	ID  string `json:"$id"`            // #section-8.2.1
@@ -105,9 +107,14 @@ type SubSchema struct {
 
 // >>>>>>>>>>>>>>>>>>>> impl UnmarshalJSON >>>>>>>>>>>>>>>>>>>>>>>
 
+// type alias for unmarshal
+type schemaToUnmarshal Schema
+type subSchemaToUnmarshal SchemaProperties
+
 // UnmarshalJSON implements json.Unmarshaler for Schema struct.
 func (s *Schema) UnmarshalJSON(data []byte) error {
-	var unmarshalSchema Schema
+	var unmarshalSchema schemaToUnmarshal
+
 	if err := json.Unmarshal(data, &unmarshalSchema); err != nil {
 		return errorst.NewError("failed to unmarshal schema: %w", err)
 	}
@@ -126,7 +133,7 @@ func (s *Schema) UnmarshalJSON(data []byte) error {
 		unmarshalSchema.Definitions = legacySchema.Definitions
 	}
 
-	*s = unmarshalSchema
+	*s = (Schema)(unmarshalSchema)
 
 	return nil
 }
@@ -159,19 +166,19 @@ func (t *Type) UnmarshalJSON(b []byte) error {
 
 // UnmarshalJSON accepts booleans as schemas where `true` is equivalent to `{}`
 // and `false` is equivalent to `{"not": {}}`.
-func (value *SubSchema) UnmarshalJSON(raw []byte) error {
+func (value *SchemaProperties) UnmarshalJSON(raw []byte) error {
 	var b bool
 	if err := json.Unmarshal(raw, &b); err == nil {
 		if b {
-			*value = SubSchema{}
+			*value = SchemaProperties{}
 		} else {
-			*value = SubSchema{Not: &SubSchema{}}
+			*value = SchemaProperties{Not: &SubSchema{}}
 		}
 
 		return nil
 	}
 
-	var obj SubSchema
+	var obj subSchemaToUnmarshal
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return errorst.NewError("failed to unmarshal subSchema: %w", err)
 	}
@@ -188,7 +195,7 @@ func (value *SubSchema) UnmarshalJSON(raw []byte) error {
 		obj.ID = legacySubSchema.ID
 	}
 
-	*value = SubSchema(obj)
+	*value = SchemaProperties(obj)
 
 	return nil
 }

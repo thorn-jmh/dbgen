@@ -9,6 +9,59 @@ import (
 
 var MainSchema *schemas.Schema
 
+func GenAndProcess(sch *schemas.Schema) (*Object, error) {
+	// first: generate object
+	obj, err := GenerateModel(sch)
+	if err != nil {
+		return nil, errorst.Wrap(err, "failed to generate model")
+	}
+
+	// second: process object
+	err = ProcessTree(obj)
+	if err != nil {
+		return nil, errorst.Wrap(err, "failed to process model")
+	}
+
+	// third: process association
+	ProcessAssociation(obj)
+
+	return obj, nil
+}
+
+func ProcessAssociation(obj *Object) {
+
+	// add ID field to root obj
+	idField := Field{
+		Name: "ID",
+		Type: Type{
+			Name: "uint",
+		},
+		Tags: map[string]string{
+			"json": "-",
+			"gorm": "primaryKey",
+		},
+	}
+	obj.Fields = append(obj.Fields, idField)
+
+	// add association foreignKey to obj
+	for _, sub := range obj.SubRelations {
+		// add association foreignKey to subRelation
+		foreignKeyField := Field{
+			Name: obj.Name + "ID",
+			Type: Type{
+				Name: "uint",
+			},
+			Tags: map[string]string{
+				"json": "-",
+			},
+			Comment: "foreign key to " + obj.Name,
+		}
+		sub.Fields = append(sub.Fields, foreignKeyField)
+
+		ProcessAssociation(sub)
+	}
+}
+
 func ProcessTree(obj *Object) (err error) {
 	// first: process definitions
 	var newDefinitions []Decl
@@ -21,11 +74,12 @@ func ProcessTree(obj *Object) (err error) {
 
 			// add all sub relations & definitions
 			obj.SubRelations = append(obj.SubRelations, defObj.SubRelations...)
+			defObj.SubRelations = nil
 
-			// if child is not named, add all fields and sub relations, then delete it
+			// if child is not named, add all fields and definitions, then delete it
 			if !isNamedObject(defObj) {
 				obj.Fields = append(obj.Fields, defObj.Fields...)
-				obj.SubRelations = append(obj.SubRelations, defObj.SubRelations...)
+				newDefinitions = append(newDefinitions, defObj.Definitions...)
 			} else {
 				newDefinitions = append(newDefinitions, def)
 			}
@@ -44,19 +98,6 @@ func ProcessTree(obj *Object) (err error) {
 		if err := ProcessTree(sub); err != nil {
 			return errorst.Wrap(err, "failed to process sub relation<%s>", sub.Name)
 		}
-
-		// add association foreignKey to subRelation
-		foreignKeyField := Field{
-			Name: obj.Name + "ID",
-			Type: Type{
-				Name: "uint",
-			},
-			Tags: map[string]string{
-				"json": "-",
-			},
-			Comment: "foreign key to " + obj.Name,
-		}
-		sub.Fields = append(sub.Fields, foreignKeyField)
 	}
 
 	return nil
@@ -74,7 +115,7 @@ func GenerateModel(sch *schemas.Schema) (obj *Object, err error) {
 	// third: generate object
 	return GenerateObject(Context{
 		State{
-			Path: sch.ID,
+			Path: sch.ID + "#",
 		},
 	}, sch.SubSchema)
 }
@@ -133,11 +174,11 @@ func GenerateObject(ctx Context, sch *schemas.SubSchema) (obj *Object, err error
 			pTyp.NilAble = isRequired(pName, sch)
 
 			field := Field{
-				Name: pName,
+				Name: BigCamelStyle(pName),
 				Type: pTyp,
 				Tags: make(map[string]string),
 			}
-			setFieldJsonTag(&field)
+			setFieldJsonTag(&field, pName)
 			setFieldGormTag(&field, true)
 
 			obj.Fields = append(obj.Fields, field)
@@ -192,11 +233,13 @@ func GeneratePrimitive(ctx Context, sch *schemas.SubSchema) (obj *Object, err er
 	pathElems := strings.Split(ctx.Path, "/")
 	fName := pathElems[len(pathElems)-1]
 	field := Field{
-		Name:    fName,
+		Name:    BigCamelStyle(fName),
 		Type:    typ,
 		Comment: getComment(sch),
+		Tags:    make(map[string]string),
 	}
-	setFieldJsonTag(&field)
+	setFieldJsonTag(&field, fName)
+	obj.Fields = append(obj.Fields, field)
 	return
 }
 
@@ -241,10 +284,10 @@ func getRefSchema(path string) (*schemas.SubSchema, error) {
 		return nil, errorst.Wrap(err, "failed to parse ref path: %s", path)
 	}
 	frags := strings.Split(uri.Fragment, "/")
-	if len(frags) < 2 || frags[0] != "$defs" {
+	if len(frags) < 3 || frags[1] != "$defs" {
 		return nil, errorst.Wrap(ErrWrongSyntax, "invalid ref path: %s", path)
 	}
-	defName := frags[1]
+	defName := frags[2]
 
 	// second get schema from main schema
 	if sch, ok := MainSchema.Definitions[defName]; ok {
@@ -261,13 +304,13 @@ func path2Name(path string) (string, error) {
 	}
 
 	// rule
-	// 1. last part of path is schema
+	// 1. last part of path is schema (remove suffix)
 	// 2. fragments is name
 	paths := strings.Split(uri.Path, "/")
 	if len(paths) == 0 {
 		return "", errorst.Wrap(ErrWrongSyntax, "invalid path: %s", path)
 	}
-	schema := paths[len(paths)-1]
+	schema := strings.Split(paths[len(paths)-1], ".")[0]
 	frags := strings.Split(uri.Fragment, "/")
 
 	// format
@@ -278,8 +321,8 @@ func path2Name(path string) (string, error) {
 	return ret, nil
 }
 
-func setFieldJsonTag(field *Field) {
-	field.Tags["json"] = field.Name
+func setFieldJsonTag(field *Field, name string) {
+	field.Tags["json"] = name
 	if !field.Type.NilAble {
 		field.Tags["json"] += ",omitempty"
 	}
@@ -292,8 +335,10 @@ func setFieldGormTag(field *Field, isEmbedded bool) {
 }
 
 func getComment(sch *schemas.SubSchema) string {
-	if sch.Title != "" {
-		return sch.Title + " " + sch.Description
+	if sch.Title != "" && sch.Description != "" {
+		return sch.Title + ": " + sch.Description
+	} else if sch.Title != "" {
+		return sch.Title
 	}
 	return sch.Description
 }
@@ -333,7 +378,7 @@ func isNilAble(typ schemas.Type) bool {
 
 func getPrimitiveType(schema *schemas.SubSchema) (ret Type, err error) {
 	if schema.Type.Contains(schemas.TypeNameString) {
-		if schema.Format == "date-time" {
+		if schema.Format == "date-time" || schema.Format == "date" {
 			ret = Type{
 				Name:   "Time",
 				Domain: "time",

@@ -15,7 +15,11 @@ func (f NameStyleFunc) Format(name string) string {
 var BigCamelStyle NameStyleFunc = func(name string) string {
 	words := strings.Split(name, "_")
 	for i, word := range words {
-		words[i] = strings.ToUpper(word[:1]) + word[1:]
+		if len(word) <= 1 {
+			words[i] = strings.ToUpper(word)
+		} else {
+			words[i] = strings.ToUpper(string(word[0])) + word[1:]
+		}
 	}
 	return strings.Join(words, "")
 }
