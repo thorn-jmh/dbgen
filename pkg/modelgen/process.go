@@ -23,31 +23,40 @@ func GenAndProcess(sch *schemas.Schema) (*Object, error) {
 	}
 
 	// third: process association
-	ProcessAssociation(obj)
+	ProcessAssociation(obj, obj.Name)
 
 	return obj, nil
 }
 
-func ProcessAssociation(obj *Object) {
-
-	// add ID field to root obj
-	idField := Field{
-		Name: "ID",
-		Type: Type{
-			Name: "uint",
-		},
-		Tags: map[string]string{
-			"json": "-",
-			"gorm": "primaryKey",
-		},
+func ProcessAssociation(obj *Object, parentName string) {
+	// if Name equal to parent name, this is a database schema
+	// add ID field
+	if obj.Name == parentName {
+		// add ID field to root obj
+		idField := Field{
+			Name: "ID",
+			Type: Type{
+				Name: "uint",
+			},
+			Tags: map[string]string{
+				"json": "-",
+				"gorm": "primaryKey",
+			},
+		}
+		obj.Fields = append(obj.Fields, idField)
 	}
-	obj.Fields = append(obj.Fields, idField)
+
+	for _, def := range obj.Definitions {
+		if defObj, ok := def.(*Object); ok {
+			ProcessAssociation(defObj, parentName)
+		}
+	}
 
 	// add association foreignKey to obj
 	for _, sub := range obj.SubRelations {
 		// add association foreignKey to subRelation
 		foreignKeyField := Field{
-			Name: obj.Name + "ID",
+			Name: parentName + "ID",
 			Type: Type{
 				Name: "uint",
 			},
@@ -58,38 +67,13 @@ func ProcessAssociation(obj *Object) {
 		}
 		sub.Fields = append(sub.Fields, foreignKeyField)
 
-		ProcessAssociation(sub)
+		ProcessAssociation(sub, sub.Name)
 	}
 }
 
 func ProcessTree(obj *Object) (err error) {
-	// first: process definitions
-	var newDefinitions []Decl
-	for _, def := range obj.Definitions {
-		// deep search
-		if defObj, ok := def.(*Object); ok {
-			if err := ProcessTree(defObj); err != nil {
-				return errorst.Wrap(err, "failed to process object<%s>", defObj.Name)
-			}
 
-			// add all sub relations & definitions
-			obj.SubRelations = append(obj.SubRelations, defObj.SubRelations...)
-			defObj.SubRelations = nil
-
-			// if child is not named, add all fields and definitions, then delete it
-			if !isNamedObject(defObj) {
-				obj.Fields = append(obj.Fields, defObj.Fields...)
-				newDefinitions = append(newDefinitions, defObj.Definitions...)
-			} else {
-				newDefinitions = append(newDefinitions, def)
-			}
-		} else {
-			newDefinitions = append(newDefinitions, def)
-		}
-	}
-	obj.Definitions = newDefinitions
-
-	// second: process sub relations
+	// first: process sub relations
 	for _, sub := range obj.SubRelations {
 		if !isNamedObject(sub) {
 			// we do not accept unnamed
@@ -99,6 +83,30 @@ func ProcessTree(obj *Object) (err error) {
 			return errorst.Wrap(err, "failed to process sub relation<%s>", sub.Name)
 		}
 	}
+
+	// second: process definitions
+	var newDefinitions []Decl
+	for _, def := range obj.Definitions {
+		// deep search
+		if defObj, ok := def.(*Object); ok {
+			if err := ProcessTree(defObj); err != nil {
+				return errorst.Wrap(err, "failed to process object<%s>", defObj.Name)
+			}
+
+			// if child is not named, append all fields and definitions and sub relations, then delete it
+			if !isNamedObject(defObj) {
+				obj.Fields = append(obj.Fields, defObj.Fields...)
+				obj.SubRelations = append(obj.SubRelations, defObj.SubRelations...)
+
+				newDefinitions = append(newDefinitions, defObj.Definitions...)
+			} else {
+				newDefinitions = append(newDefinitions, def)
+			}
+		} else {
+			newDefinitions = append(newDefinitions, def)
+		}
+	}
+	obj.Definitions = newDefinitions
 
 	return nil
 }
@@ -211,11 +219,11 @@ func GeneratePrimitive(ctx Context, sch *schemas.SubSchema) (obj *Object, err er
 			Name: name,
 			BaseType: Type{
 				Name:   typ.Name,
-				Domain: typ.Domain, // we do not care inner type's nilAble
+				Domain: typ.Domain, // we do not care whether inner type is nilAble
 			},
 		}
 
-		// create enum and add 2 definitions
+		// create enum and add it to definitions
 		enum := Enum{
 			Alias: alias,
 		}
@@ -259,6 +267,21 @@ func GenerateArray(ctx Context, sch *schemas.SubSchema) (obj *Object, err error)
 
 	// add 2 sub relations
 	obj.SubRelations = append(obj.SubRelations, itemObj)
+
+	// add reference field
+	pathElems := strings.Split(ctx.Path, "/")
+	fName := pathElems[len(pathElems)-1]
+	field := Field{
+		Name: BigCamelStyle(fName) + "Items",
+		Type: Type{
+			Name:    itemObj.Name,
+			IsArray: true,
+		},
+		Comment: getComment(sch),
+		Tags:    make(map[string]string),
+	}
+	setFieldJsonTag(&field, fName)
+	obj.Fields = append(obj.Fields, field)
 	return
 }
 
@@ -323,7 +346,7 @@ func path2Name(path string) (string, error) {
 
 func setFieldJsonTag(field *Field, name string) {
 	field.Tags["json"] = name
-	if !field.Type.NilAble {
+	if field.Type.NilAble {
 		field.Tags["json"] += ",omitempty"
 	}
 }

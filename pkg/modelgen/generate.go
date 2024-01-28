@@ -14,7 +14,7 @@ func (d *Object) Gen(f *jen.File) error {
 	// first declare struct fields
 	var fieldsDecl = func(g *jen.Group) {
 		// add gorm model
-		//declGormModel(g)
+		// declGormModel(g)
 
 		// decl fields
 		for _, field := range d.Fields {
@@ -29,20 +29,20 @@ func (d *Object) Gen(f *jen.File) error {
 
 	}
 
-	// second declare sub relation references
-	var subRelationsDecl = func(g *jen.Group) {
-		fieldsDecl(g)
-		if len(d.SubRelations) > 0 {
-			g.Line().Commentf("sub relations of %s", d.Name)
-			for _, sub := range d.SubRelations {
-				g.Id(sub.Name + "s").Index().Id(sub.Name)
-			}
-		}
-	}
+	//// second declare sub relation references
+	//var subRelationsDecl = func(g *jen.Group) {
+	//	fieldsDecl(g)
+	//	if len(d.SubRelations) > 0 {
+	//		g.Line().Commentf("sub relations of %s", d.Name)
+	//		for _, sub := range d.SubRelations {
+	//			g.Id(sub.Name + "s").Index().Id(sub.Name)
+	//		}
+	//	}
+	//}
 
 	// third declare struct
 	f.Line().Comment(d.Comment)
-	f.Type().Id(d.Name).StructFunc(subRelationsDecl)
+	f.Type().Id(d.Name).StructFunc(fieldsDecl)
 
 	// forth declare definitions
 	for _, def := range d.Definitions {
@@ -87,9 +87,13 @@ func (d *Enum) Gen(f *jen.File) error {
 }
 
 func declType(s *jen.Statement, typ Type) *jen.Statement {
-	if typ.NilAble {
+
+	if typ.IsArray {
+		s.Index()
+	} else if typ.NilAble {
 		s.Op("*")
 	}
+
 	if typ.Domain != "" {
 		return s.Qual(typ.Domain, typ.Name)
 	} else {

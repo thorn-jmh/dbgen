@@ -35,4 +35,5 @@ type Type struct {
 	Name    string // type Name
 	Domain  string // package path
 	NilAble bool   // is NilAble, we will use pointer to represent NilAble type
+	IsArray bool
 }
